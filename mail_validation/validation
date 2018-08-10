@@ -1,0 +1,374 @@
+import re
+
+WSP = r'[ \t]'                                       # См 2.2.2. пробельные символы (WSP)
+
+# Процесс преобразования фальцованного многострочного представления поля в обычное однострочное называется
+# расфальцовкой (unfolding) и выполняется путем простого удаления всех последовательностей CRLF,
+# непосредственно за которыми следуют пробельные символы (WSP). Каждое поле заголовка для
+# дальнейшего синтаксического и семантического анализа следует трактовать в его нефальцованном представлении.
+# На нефальцованные поля заголовков не накладываются ограничения по размеру и они, следовательно, могут иметь любую длину.
+
+
+
+CRLF = r'(?:\r\n)'                                   # См 2.2.3. Long Header Fields
+# Каждое поле заголовка логически представляет собой строку символов, состоящую из имени поля, двоеточия и тела
+# (значения) поля. Однако для удобства и с учетом ограничения размеров строки (998/78 символов),
+# значение поля может быть разбито на несколько строк; это называется «фальцовкой» (folding).
+# Общим правило заключается в том, что данная спецификация разрешает включение последовательности CRLF (новая строка)
+# перед любыми пробельными символами.
+# \n соответствует концу строки, а \t — табуляции. \r возврат каретки
+
+
+
+
+NO_WS_CTL = r'\x01-\x08\x0b\x0c\x0f-\x1f\x7f'        # См 3.2.1. Primitive Tokens  Управляющие символы US-ASCII
+
+# NO-WS-CTL       =       %d1-8 /         ; US-ASCII control characters
+#                         %d11 /          ;  that do not include the
+#                         %d12 /          ;  carriage return, line feed,
+#                         %d14-31 /       ;  and white space characters
+#                         %d127
+# ftp://ftp.vt.tpu.ru/study/Malchukov/public/PHDL/Projects/ascii.pdf
+obs_NO_WS_CTL = NO_WS_CTL
+
+########################################################################################################################
+
+obs_qp = r'(?:\\x5c[\\x0-\\x7f])'
+
+# $obs_qp		= "(?:\\x5c[\\x00-\\x7f])";
+# obs-qp          =       "\" (%d0-127)
+# Символ обратная косая черта ("\") может использоваться
+# вместо кавычки внутри закавыченного текста или в структурах комментариев. quoted-pair = "\" CHAR
+# Некоторые символы имеют специальное значение (например, используются в качестве границ лексем).
+
+
+
+
+
+
+# obs_text = r"(?:$lf*$cr*(?:$obs_char$lf*$cr*)*)";
+
+
+########################################################################################################################
+
+quoted_pair = r'(?:\\.' + r'|' + obs_qp + r')'                             # См 3.2.2. Квотрирование символов
+
+# quoted-pair     =       ("\" text) / obs-qp
+
+
+#  Для использования таких символов в общепринятом смысле служит механизм квотирования (добавления «кавычек»).
+# При появлении любой пары с квотированием (quoted-pair) она интерпретируется как отдельный символ.
+# Т. е., символ \, являющийся частью пары с квотированием, становится семантически «невидимым».
+
+
+FWS = r'(?:(?:' + WSP + r'*' + CRLF + r')?' + \
+      WSP + r'+)'                                    # См 3.2.3. Folding white space and comments
+
+# FWS             =       ([*WSP CRLF] 1*WSP)  obs-FWS
+
+
+# Для согласования с таким синтаксисом определена дополнительная лексема CFWS, показывающая
+# возможность включения комментариев и/или FWS. Однако в тех случаях, где в данной спецификации разрешается CFWS,
+# недопустимо использовать их так, чтобы фальцованное поле заголовка включало только символы WSP и ничего другого.
+# В этой спецификации появление FWS (пробельные символы для фальцовки) означает указание места,
+# где возможно выполнение фальцовки, как описано в параграфе 2.2.3. Всякий раз при использовании фальцовки
+# (т.е., поля заголовка, содержащего последовательность CRLF, за которой следейт любой символ WSP)
+# в сообщении должна выполняться расфальцовка (удаление CRLF) до любого семантического анализа,
+# выполняемого по отношению к заголовку в соответствии с данной спецификацией.
+# Т. е., любые последовательности CRLF, включенные в FWS, являются семантически невидимыми.
+
+
+
+
+ctext = r'[' + NO_WS_CTL + \
+        r'\x21-\x27\x2a-\x5b\x5d-\x7e]'
+
+
+# ctext           =   %d33-39 /          ; печатаемые символы US-ASCII,
+#                     %d42-91 /          ; не включая
+#                     %d93-126 /         ; "(", ")" и "\"
+#                     obs-ctext
+
+CCONTENT = r'(?:' + ctext + r'|' + \
+           quoted_pair + r')'
+
+# ccontent        =   ctext / quoted-pair / comment
+
+
+
+comment = r'\((?:' + FWS + r'?' + CCONTENT + \
+          r')*' + FWS + r'?\)'
+
+# comment         =       "(" *([FWS] ccontent) [FWS] ")"
+
+
+CFWS = r'(?:' + FWS + r'?' + comment + r')*(?:' + \
+       FWS + r'?' + comment + r'|' + FWS + r')'         # См 3.2.3
+
+# CFWS            =       *([FWS] comment) (([FWS] comment) / FWS)
+
+atext = r'[\w!#$%&\'\*\+\-/=\?\^`\{\|\}~]'           # См 3.2.4. Atom
+
+
+#atext           =   ALPHA / DIGIT /    ; Печатаемые символы US-ASCII,
+                    # "!" / "#" /        ; не включая специальных символов.
+                    # "$" / "%" /        ; Используются для атомов.
+                    # "&" / "'" /
+                    # "*" / "+" /
+                    # "-" / "/" /
+                    # "=" / "?" /
+                    # "^" / "_" /
+                    # "`" / "{" /
+                    # "|" / "}" /
+                    # "~"
+
+
+# Некоторые конструкции в теле структурированных полей заголовков представляют собой просто строки
+# некоторых базовых символов. Такие конструкции называют атомами.
+
+atom = CFWS + r'?' + atext + r'+' + CFWS + r'?'
+
+# atom            =   [CFWS] 1*atext [CFWS]
+
+dot_atom_text = atext + r'+(?:\.' + atext + r'+)*'
+
+# dot-atom-text   =   1*atext *("." 1*atext)
+
+dot_atom = CFWS + r'?' + dot_atom_text + CFWS + r'?'
+
+# dot-atom        =   [CFWS] dot-atom-text [CFWS]
+
+
+# Лексемы atom и dot-atom интерпретируются, как единый элемент, включающий строку символов.
+# емантически дополнительные комментарии и FWS, окружающие остальные символы,
+# не являются частью атома — атом представляет собой только символы atext.
+
+qtext = r'[' + NO_WS_CTL + \
+        r'\x21\x23-\x5b\x5d-\x7e]'                   # См 3.2.4. Строки в кавычках
+
+# qtext           =   %d33 /             ; Печатаемые символы US-ASCII,
+#                     %d35-91 /          ; не включая "\"
+#                     %d93-126 /         ; и символа кавычек
+#                     obs-qtext
+
+qcontent = r'(?:' + qtext + r'|' + \
+           quoted_pair + r')'
+
+
+#qcontent        =   qtext / quoted-pair
+
+
+quoted_string = CFWS + r'?' + r'"(?:' + FWS + \
+                r'?' + qcontent + r')*' + FWS + \
+                r'?' + r'"' + CFWS + r'?'
+
+
+
+
+# quoted-string   =   [CFWS]
+#                     DQUOTE *([FWS] qcontent) [FWS] DQUOTE
+#                     [CFWS]
+
+# Строка в кавычках трактуется как единый элемент. Т. е., семантически строка в кавычках эквивалентна атому.
+# Поскольку строки в кавычках могут содержать FWS, в них возможна фальцовка. Отметим также, что благодаря возможности
+# использования внутри кавычек пар с квотированием, строки в кавычках  могут содержать также символы кавычек и обратной
+# дробной черты, если они представлены в форме пар с квотированием.
+
+
+
+#################################################################################################
+# 4.1. Miscellaneous obsolete tokens: obs-qp(up)
+# obs-text, obs-char,  obs-utext,obs-phrase(down),obs-phrase-list(down)
+
+obs_char = r'\x0-\x9\xb\xc\xe-\x7f'
+# obs-char        =       %d0-9 / %d11 /          ; %d0-127 except CR and
+#                         %d12 / %d14-127         ;  LF
+
+
+CR = r'\x0d'
+LF = r'\x0a'
+
+obs_text = r'(?:' + LF + r'*' + CR + r'*(?:' + obs_char + LF + r'*' + CR + r'*)*)'
+
+# obs-text        =       *LF *CR *(obs-char *LF *CR)
+
+
+obs_utext  = obs_text
+
+#obs-utext       =       obs-text
+
+
+
+
+
+
+# 4.2. Obsolete folding white space:
+
+
+
+obs_FWS = WSP + r'+(?:' + CRLF + WSP + r'+)*'
+
+# obs-FWS         =       1*WSP *(CRLF 1*WSP)
+
+
+
+
+
+
+
+
+# 4.4. Obsolete Addressing:
+
+# obs-angle-addr  =       [CFWS] "<" [obs-route] addr-spec ">" [CFWS] (down)
+
+
+
+# obs-domain-list =       "@" domain *(*(CFWS / "," ) [CFWS] "@" domain) (down)
+
+# obs_route(down)
+
+
+
+word = r'(?:' + atom + r'|' + quoted_string + r')'
+
+# word            =       atom / quoted-string
+
+# obs_local_part = word + r'+(?:\.' + word + r'+)*'
+obs_local_part = r'(?:' + word + r'(?:\\x2e' + word + r')*)'
+# obs-local-part  =       word *("." word)
+
+obs_domain = r'(?:' + atom + r'(?:\\x2e' + atom + r')*)'
+
+# obs-domain      =       atom *("." atom)
+
+
+
+
+obs_phrase = word + r'*' + r'(?:' + word + r'|' + r'\.' + r'|' + CFWS + r')*' #см 4.1
+
+# obs-phrase      =       word *(word / "." / CFWS)
+
+
+phrase = word + r'+' + r'|' + obs_phrase
+# phrase          =       1*word / obs-phrase
+
+
+obs_phrase_list = phrase + r'|' + r'(?:' + phrase + r'?' + CFWS + r'?' + r'\,' + CFWS + r'?)+' + phrase + r'?'
+
+# obs-phrase-list =       phrase / 1*([phrase] [CFWS] "," [CFWS]) [phrase]
+
+
+###########################################################################################################################
+
+
+
+
+local_part = r'(?:' + dot_atom + r'|' + \
+             quoted_string + r'|' + obs_local_part + r')'                    # См 3.4.1. Задание addr-spec
+
+# local-part      =   dot-atom / quoted-string / obs-local-part
+
+# Поле addr-spec представляет собой специфический для Internet идентификатор, содержащий локально интерпретируемую строку,
+# за которой следует символ @ (код ASCII - 64) и доменное имя Internet. Эта локально интерпретируемая строка представляет собой
+# строку в кавычках или атом с точкой. Если строка может быть представлена атомом с точкной
+# (т. е., не содержит символов, кроме atext и завершающей точки или, за которой следуют символы atext),
+# следует использовать форму dot-atom и не следует применять форму quoted-string.
+# Комментарии и пробельные символы фальцовки не следует помещать рядом с @ в поле addr-spec.
+
+
+dtext = r'[' + r'\x21-\x5a\x5e-\x7e' + r']'    # see 3.4.1
+
+# dtext           =   %d33-90 /          ; Печатаемые символы US-ASCII,
+#                     %d94-126 /         ; не включая
+#                               ; "[", "]", or "\"
+
+
+dcontent = r'(?:' + dtext + r'|' + \
+           quoted_pair + r')'
+
+domain_literal = CFWS + r'?' + r'\[' + \
+                 r'(?:' + FWS + r'?' + dcontent + \
+                 r')*' + FWS + r'?\]' + CFWS + r'?'
+
+# domain-literal  =   [CFWS] "[" *([FWS] dtext) [FWS] "]" [CFWS]
+
+domain = r'(?:' + dot_atom + r'|' + \
+         domain_literal + r'|' + obs_domain + r')'
+
+
+# domain          =   dot-atom / domain-literal / obs-domain
+
+obs_domain_list = r'@' + domain + r'(?:(?:' + CFWS + r'|' + r'\,' + r')*' + CFWS + r'?' + r'@' + domain + r')*'
+
+obs_route = CFWS + r'?' + obs_domain_list + r'\:' + CFWS + r'?'
+# obs-route       =       [CFWS] obs-domain-list ":" [CFWS]
+
+
+addr_spec = local_part + r'@' + domain
+
+# addr-spec       =   local-part "@" domain
+#############################################################################################################################
+#3.4 address spec
+
+
+display_name = phrase
+
+obs_angle_addr = CFWS + r'?' + r'\<' + obs_route + r'?' + addr_spec + r'\>' + CFWS + r'?'
+
+# obs-angle-addr  =       [CFWS] "<" [obs-route] addr-spec ">" [CFWS]
+
+angle_addr = CFWS + r'?' + r'\<' + addr_spec + r'\>' + CFWS + r'?' + r'|' + obs_angle_addr
+
+name_addr = display_name + r'?' + angle_addr
+
+mailbox = name_addr + r'|' + addr_spec
+
+obs_mbox_list = r'(?:' + mailbox + r'?' + CFWS + r'?' + r'\,' + CFWS + r'?' + r')+' + mailbox + r'?'
+# obs-mbox-list   =       1*([mailbox] [CFWS] "," [CFWS]) [mailbox]
+
+mailbox_list = r'(?:' + mailbox + r'(?:' + r'\,' + mailbox + r')*)' + r'|' + obs_mbox_list
+
+
+group = display_name + r'\:' + r'[' + mailbox_list + r'|' + CFWS + r']' + r'\;' + CFWS + r'?'
+
+# group           =       display-name ":" [mailbox-list / CFWS] ";"                        [CFWS]
+
+
+
+
+address = mailbox + r'|' + group
+# address         =       mailbox / group
+
+#########################################################################################################################
+obs_addr_list = r'(?:' + address + r'?' + CFWS + r'?' + r'\,' + CFWS + r'?)+' + address
+
+# obs-addr-list   =       1*([address] [CFWS] "," [CFWS]) [address]
+
+
+
+address_list = r'(?:' + address + r'(?:' + r'\,' + address + r')*)' + r'|' + obs_addr_list
+
+# address-list    =       (address *("," address)) / obs-addr-list
+
+###########################################################################################################################
+valid_address = '^' + addr_spec + '$'
+
+def valid_email_address(string):
+
+    # print(re.match(valid_address, string) is not None)
+    # print(re.match(obs_local_part, string) is not None)
+    print(re.match(valid_address, string) is not None)
+
+#Slavaalekseenk@mail.ru
+
+# addr_spec = local_part + r'@' + domain
+
+    # local_part = r'(?:' + dot_atom + r'|' + \
+    #              quoted_string + r'|' + obs_local_part + r')'  # См 3.4.1. Задание addr-spec
+# domain          =   dot-atom / domain-literal / obs-domain
+
+mail = input()
+# mail = "Slavaalekseenk@mail.ru"
+valid_email_address(mail)
+
+
